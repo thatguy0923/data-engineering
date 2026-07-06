@@ -1,0 +1,42 @@
+# 虚拟环境
+bin/
+lib/
+include/
+etc/
+pyvenv.cfg
+share/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 数据文件（保留生成脚本）
+*.csv
+data/*.json
+
+# 日志
+*.log
+
+# Airflow
+airflow/standalone_admin_*.json
+airflow/simple_auth_manager_passwords.json.*
+airflow/airflow.cfg
+airflow/airflow.db*
+airflow/logs/
+airflow/webserver_config.py
+
+# IDE
+.vscode/
+.idea/
+
+# 大文件
+mysql-connector-j.jar
+
+# 临时文件
+*.swp
+*.swo
+.DS_Store
