@@ -97,6 +97,7 @@ GX 1.x 不用初始化命令了，直接在 Python 里搭。核心是四层：
 # TODO 2：不看上面，用自己的话默写这四层分别是干什么的
 # 特别想清楚：Data Source / Suite / ValidationDefinition / Checkpoint
 # 这四个概念面试常问，要能一句话说清各自的职责
+#第一层就是管理所有gx的配置的文件，第二层就是写着数据的类型以及是那一份数据，以及按什么划分批次，第三层就是检验规则，第四层就是把数据和检验规则一起跑，验证加报告告警
 
 
 # ================================================================
@@ -128,11 +129,24 @@ pandas 数据源的三步（固定套路）：
 # TODO 3-1：写代码创建 context（mode="file"）
 # 然后用 add_pandas 三步套路，定义一个数据源
 # 提示：import great_expectations as gx
+import pandas as pd
+import great_expectations as gx
+context = gx.get_context(mode = "file")
+ds = context.data_sources.add_pandas(name = "refund_ds")
+asset = ds.add_dataframe_asset(name = "refund_asset")
+bd = asset.add_batch_definition_whole_dataframe("refund_bd")
 
 # TODO 3-2：造一个测试用的 pandas DataFrame，模拟 daily_refund_report
 # 至少包含这几列：product_category, total_orders, refund_rate, total_refund
 # （后面第 5 关会故意塞脏数据进去测试）
 
+df = pd.DataFrame({
+    "product_category": ["Electronics", "Clothing", "Books"],
+    "total_orders": [100, 200, 150],
+    "refund_rate": [0.1, 0.2, 0.15],
+    "total_refund": [1000, 2000, 1500],
+    "report_date": ["2026-07-07", "2026-07-07", "2026-07-07"],
+})
 
 # ================================================================
 # 第 4 关：写第一组验证规则（Expectation Suite）
@@ -178,13 +192,27 @@ print("""
 
 # TODO 4-1：创建一个 ExpectationSuite，至少加 5 条规则
 # 用上面列的常规检查 1~5，对应你第 3-2 造的 DataFrame 的列
+from great_expectations.expectations import (
+    ExpectColumnMinToBeBetween,
+    ExpectColumnValuesToBeBetween,
+    ExpectColumnValuesToNotBeNull,
+    ExpectColumnToExist,
+    ExpectColumnMaxToBeBetween,
+    ExpectColumnValuesToBeInSet,
+)
+suite = context.suites.add(gx.ExpectationSuite(name = "refund_quality_suite"))
+suite.add_expectation(ExpectColumnMinToBeBetween(column = "total_orders", min_value = 1))
+suite.add_expectation(ExpectColumnValuesToBeBetween(column = "total_refund", min_value = 0))
+suite.add_expectation(ExpectColumnValuesToBeBetween(column = "refund_rate", min_value = 0, max_value = 1))
+suite.add_expectation(ExpectColumnValuesToNotBeNull(column = "product_category"))
+suite.add_expectation(ExpectColumnToExist(column = "report_date"))
 
 # TODO 4-2：再加一条业务规则 —— 验证 total_refund 最大值不超过 50000
 # 提示：ExpectColumnMaxToBeBetween(column=..., max_value=50000)
-
+suite.add_expectation(ExpectColumnMaxToBeBetween(column = "total_refund", max_value = 50000))
 # TODO 4-3：想一条你自己觉得该加的规则（比如品类只能是某几个值）
 # 用 ExpectColumnValuesToBeInSet 实现
-
+suite.add_expectation(ExpectColumnValuesToBeInSet(column = "product_category", value_set = ["Electronics", "Clothing", "Books"]))
 
 # ================================================================
 # 第 5 关：跑验证 + 看报告
@@ -219,15 +247,35 @@ GX 1.x 执行验证有两种粒度：
 
 # TODO 5-1：用 ValidationDefinition.run() 跑一次验证
 # 打印 result.success 和 result.statistics，确认全过
+vd = context.validation_definitions.add(
+    gx.ValidationDefinition(name = "refund_vd", data = bd, suite = suite)
+)
+result = vd.run(batch_parameters = {"dataframe": df})
+print(result.success)
+print(result.statistics)
 
 # TODO 5-2：建一个 Checkpoint，带 UpdateDataDocsAction，跑一次
 # 然后 context.open_data_docs() 打开 HTML 报告，看看长什么样
-
+from great_expectations.checkpoint import UpdateDataDocsAction
+cp = context.checkpoints.add(gx.Checkpoint(
+    name = "refund_checkpoint",
+    validation_definitions = [vd],
+    actions = [UpdateDataDocsAction(name = "update_docs")],
+))
+res = cp.run(batch_parameters = {"dataframe": df})
+context.open_data_docs()
 # TODO 5-3：故意把 DataFrame 里塞一条脏数据（比如 refund_rate = 1.5）
 # 再跑一次 checkpoint，看报告会不会标红失败
 # —— 这一步是验证"你的验证"本身是有效的，很重要
-
-
+df_e = pd.DataFrame({
+    "product_category": ["Electronics", "Clothing", "Books"],
+    "total_orders": [100, 200, 150],
+    "refund_rate": [0.1, 1.5, 0.15],  # 故意塞脏数据
+    "total_refund": [1000, 2000, 1500],
+    "report_date": ["2026-07-07", "2026-07-07", "2026-07-07"],
+})
+res = cp.run(batch_parameters = {"dataframe": df_e})
+context.open_data_docs()
 # ================================================================
 # 第 6 关：从 pandas 换到 Spark（对接你的退款管道）
 # ================================================================
@@ -255,10 +303,83 @@ print("""
 
 # TODO 6-1：把第 3~5 关的代码复制一份，把 add_pandas 改成 add_spark
 # 用一个小的 spark DataFrame 测试跑通（可以从 refund_etl 里借一段数据）
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.appName("GX Test").getOrCreate()
+df_spark = spark.createDataFrame(df)
+ds_spark = context.data_sources.add_spark(name = "refund_spark_ds")
+asset_spark = ds_spark.add_dataframe_asset(name = "refund_spark_asset")
+bd_spark = asset_spark.add_batch_definition_whole_dataframe("refund_spark_bd")
+vd_spark = context.validation_definitions.add(
+    gx.ValidationDefinition(name = "refund_spark_vd", data = bd_spark, suite = suite)
+)
+result_spark = vd_spark.run(batch_parameters = {"dataframe": df_spark})
+print(result_spark.success)
+print(result_spark.statistics)
+cp_spark = context.checkpoints.add(gx.Checkpoint(
+    name = "refund_spark_checkpoint",
+    validation_definitions = [vd_spark],
+    actions = [UpdateDataDocsAction(name = "update_docs")],
+))
+res = cp_spark.run(batch_parameters = {"dataframe": df_spark})
+context.open_data_docs()
 
 # TODO 6-2（选做）：把 GX 验证封装成一个函数 run_ge_check(spark_df)
 # 返回 bool（是否全过），失败时抛 PipelineError
 # 这样能塞进你现有的 refund_etl.py validate 步骤
+
+from refund_config import PipelineError
+
+def run_ge_check(spark_df):
+    ctx = gx.get_context(mode="ephemeral")
+
+    # Spark 数据源三步
+    ds = ctx.data_sources.add_spark(name="ge_ds")
+    asset = ds.add_dataframe_asset(name="ge_asset")
+    bd = asset.add_batch_definition_whole_dataframe("ge_bd")
+
+    # 验证规则（跟你第 4 关写的 5 条核心规则一致）
+    suite = ctx.suites.add(gx.ExpectationSuite(name="ge_suite"))
+    suite.add_expectation(ExpectColumnMinToBeBetween(column="total_orders", min_value=1))
+    suite.add_expectation(ExpectColumnValuesToBeBetween(column="total_refund", min_value=0))
+    suite.add_expectation(ExpectColumnValuesToBeBetween(column="refund_rate", min_value=0, max_value=1))
+    suite.add_expectation(ExpectColumnValuesToNotBeNull(column="product_category"))
+    suite.add_expectation(ExpectColumnToExist(column="report_date"))
+
+    # 绑定数据 + 规则，跑验证
+    vd = ctx.validation_definitions.add(
+        gx.ValidationDefinition(name="ge_vd", data=bd, suite=suite))
+    result = vd.run(batch_parameters={"dataframe": spark_df})
+
+    if not result.success:
+        stats = result.statistics
+        raise PipelineError(
+            f"数据质量验证失败: {stats['unsuccessful_expectations']}/{stats['evaluated_expectations']} 条未通过"
+        )
+
+    return True
+
+
+# ── 测试 run_ge_check ──
+print("\n===== 测试 run_ge_check =====")
+
+# 测试 1：干净数据 → 应该返回 True
+print("测试1（干净数据）:", run_ge_check(df_spark))
+
+# 测试 2：脏数据 → 应该抛 PipelineError
+df_dirty = spark.createDataFrame(
+    pd.DataFrame({
+        "product_category": ["Electronics"],
+        "total_orders": [0],          # ← 故意违规：最小值小于 1
+        "refund_rate": [0.1],
+        "total_refund": [1000],
+        "report_date": ["2026-07-07"],
+    })
+)
+try:
+    run_ge_check(df_dirty)
+    print("测试2（脏数据）: ❌ 没抛异常，有问题！")
+except PipelineError as e:
+    print(f"测试2（脏数据）: ✅ 正确抛出 PipelineError → {e}")
 
 
 # ================================================================
@@ -306,6 +427,10 @@ print("""
 
 # TODO 7-1：想清楚一个问题 —— 为什么 Airflow 里用 add_sql 连 MySQL
 # 比传 Spark DataFrame 更方便？（提示：任务之间数据怎么传递）
+# Airflow 每个 task 是独立进程,内存不共享。Spark DataFrame 活在
+# run_etl 任务的内存里,任务一结束就没了,没法通过 XCom 传给下游
+# (XCom 只能传小数据)。而 run_etl 最后已经把结果写进 MySQL 表,
+# quality_check 用 add_sql 直接连表读就行,数据现成的,不用跨任务传 df。
 
 # TODO 7-2（选做）：在你的退款 DAG 里加一个 quality_check 任务
 # 用 add_sql 连 MySQL 的 daily_refund_report 表来验证

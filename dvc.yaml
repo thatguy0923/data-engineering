@@ -1,0 +1,22 @@
+stages:
+    load:
+      cmd: python refund_etl.py --step extract --date 2025-06-01
+      deps:
+        - data/refund_orders.csv
+        - refund_etl.py
+      outs:
+        - data/raw_loaded.parquet
+
+    transform:
+      cmd: python refund_etl.py --step transform --date 2025-06-01
+      deps:
+        - data/raw_loaded.parquet
+        - refund_etl.py
+      outs:
+        - data/aggregated.parquet
+
+    load_to_mysql:
+      cmd: python refund_etl.py --step load --date 2025-06-01
+      deps:
+        - data/aggregated.parquet
+        - refund_config.py

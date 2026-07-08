@@ -29,6 +29,9 @@ airflow/airflow.db*
 airflow/logs/
 airflow/webserver_config.py
 
+# Great Expectations
+gx/
+
 # IDE
 .vscode/
 .idea/
