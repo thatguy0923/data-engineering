@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Phase 2 Day 12: Great Expectations —— 数据质量自动化
-=====================================================
+Phase 2 Day 12: Great Expectations 1.x —— 数据质量自动化
+=========================================================
+
+⚠️ 版本说明（重要）：
+  你装的是 Great Expectations 1.18（也叫 GX 1.x）。
+  网上很多老教程用的是 0.18 版，命令是 `great_expectations init`、
+  `great_expectations suite new` 这种 CLI —— 1.x 把 CLI 全删了，
+  只剩 Python API。所以这份文件全部用 Python 代码，不用命令行。
+
+  记住这个版本差异，面试/查文档时不要被老教程带偏。
 
 学习目标：
   1. 理解数据质量框架是什么，为什么不能只靠手工检查
-  2. 用 Great Expectations 给管道加自动化质量断言
-  3. 产出自动化的数据质量报告
+  2. 用 GX 1.x 的 Python API 给管道加自动化质量断言
+  3. 产出自动化的数据质量 HTML 报告
 
 场景：退款 ETL 管道跑完之后，自动验证数据质量
   之前 validate_results() 是手写的几个 if 检查
-  现在用 GE 框架来做 —— 验证规则可复用、可扩展、自动生成报告
+  现在用 GX 框架来做 —— 验证规则可复用、可扩展、自动生成报告
 
 核心理念：
   写的不是"检查代码"，而是"数据应该长什么样的声明"
 
   你写: "refund_rate 应该在 0 到 1 之间"
-  GE 做: 自动跑这条规则 + 记录哪行没过 + 生成 HTML 报告 + 记入历史
+  GX 做: 自动跑这条规则 + 记录哪行没过 + 生成 HTML 报告 + 记入历史
 """
 
 # ================================================================
@@ -31,8 +39,8 @@ print("""
       raise PipelineError("存在负数")
   → 你自己写"怎么检查"，每加一条规则就多加一个 if
 
-声明式验证（GE 的方式）：
-  validator.expect_column_min_to_be_between("refund_amount", 0, None)
+声明式验证（GX 的方式）：
+  ExpectColumnMinToBeBetween(column="refund_amount", min_value=0)
   → 你声明"这列的最小值应该在 0 以上"，框架自己跑检查
 
 为什么重要？
@@ -40,120 +48,142 @@ print("""
   - 每次改规则要改代码，容易出错
   - 面试官问"你的数据质量怎么保证" → 你说"我用 Great Expectations"
     比说"我写了几个 if"强一个级别
+
+  注意：GX 不是为了"更快"（它比裸 if 慢，有框架开销），
+  而是为了可读、可复用、有报告、有历史、规则和代码分离。
 """)
 
 # TODO 1：用你自己的话写一下 —— 声明式验证比命令式好在哪？
-# （至少两个理由）
+# （至少两个理由）首先是可读性强，并且维护成本低
 
 
 # ================================================================
-# 第 2 关：安装并初始化 Great Expectations
+# 第 2 关：GX 1.x 的四层核心概念
 # ================================================================
-print("\n===== 第 2 关：环境准备 =====")
+print("\n===== 第 2 关：GX 1.x 的骨架 =====")
 
 print("""
-在终端执行：
+GX 1.x 不用初始化命令了，直接在 Python 里搭。核心是四层：
 
-  pip install great_expectations
+  ┌──────────────────────────────────────────────────────┐
+  │ 1. Context（上下文）                                  │
+  │    整个 GX 项目的入口，管理所有配置                    │
+  │    context = gx.get_context(mode="file")             │
+  │    → mode="file" 会在 ./gx/ 目录持久化配置            │
+  │    → mode="ephemeral" 只存内存，退出就没（测试用）    │
+  ├──────────────────────────────────────────────────────┤
+  │ 2. Data Source → Data Asset → Batch Definition       │
+  │    告诉 GX "数据从哪来"                                │
+  │    data_source: 数据源类型（pandas / spark / sql）    │
+  │    data_asset:  具体一份数据                           │
+  │    batch_definition: 怎么切批次（整份 or 按日期分）    │
+  ├──────────────────────────────────────────────────────┤
+  │ 3. Expectation Suite（期望套件）                      │
+  │    一组验证规则的集合                                  │
+  │    suite = ExpectationSuite(name="refund_suite")     │
+  │    suite.add_expectation(ExpectColumn...())          │
+  ├──────────────────────────────────────────────────────┤
+  │ 4. Validation Definition + Checkpoint                │
+  │    把"数据(batch)" + "规则(suite)"绑在一起去跑        │
+  │    ValidationDefinition(data=batch_def, suite=suite) │
+  │    Checkpoint = 一次或多次验证 + 触发动作(出报告)      │
+  └──────────────────────────────────────────────────────┘
 
-然后初始化 GE 项目：
-
-  cd ~/de-venv
-  great_expectations init
-
-这会创建 gx/ 目录，里面包含：
-  gx/
-  ├── great_expectations.yml   ← 主配置文件
-  ├── expectations/             ← 你写的验证规则（json）
-  ├── checkpoints/              ← 验证跑点（可以定时执行）
-  ├── plugins/                  ← 自定义插件
-  └── uncommitted/
-      ├── config_variables.yml  ← 敏感配置（密码等）
-      └── data_docs/            ← 生成的 HTML 报告
+一句话串起来：
+  Context 里，把 [某份数据的批次] 和 [一套期望规则] 组成一个
+  ValidationDefinition，再用 Checkpoint 跑它并生成报告。
 """)
 
-# TODO 2：安装 GE 并初始化。把 great_expectations.yml 里关键配置
-# （datasource、store 路径）看一遍，用自己的话注释每块是干什么的
+# TODO 2：不看上面，用自己的话默写这四层分别是干什么的
+# 特别想清楚：Data Source / Suite / ValidationDefinition / Checkpoint
+# 这四个概念面试常问，要能一句话说清各自的职责
 
 
 # ================================================================
-# 第 3 关：连接数据源
+# 第 3 关：连接数据源（先用 pandas 跑通，再换 Spark）
 # ================================================================
-print("\n===== 第 3 关：连接 MySQL 数据源 =====")
+print("\n===== 第 3 关：连接数据源 =====")
 
 print("""
-GE 需要知道"我要验证什么数据"。数据源有三种连接方式：
+GX 1.x 有三种引擎，你的项目相关的：
 
-  Filesystem:   直接读 CSV / Parquet 文件
-  SQL:          连数据库，验证表的内容
-  Spark:        通过 PySpark DataFrame 验证
+  add_pandas(name)   → 验证 pandas DataFrame（最简单，先用这个跑通）
+  add_spark(name)    → 验证 PySpark DataFrame（你退款项目用的）
+  add_sql(name, connection_string) → 直接连 MySQL 验证表
 
-我们要验证 MySQL 里的 daily_refund_report 表，选择 SQL 方式。
+推荐路径：先用 pandas 把整个流程跑通，理解概念，
+再换成 Spark（API 几乎一样，只是 add_pandas → add_spark）。
 
-连接配置在 great_expectations.yml 里加一个 datasource：
-  类型: SQL
-  连接串: mysql+pymysql://root:@localhost:3306/refund_db
-  要验证的表: daily_refund_report
+pandas 数据源的三步（固定套路）：
+  ds    = context.data_sources.add_pandas(name="refund_ds")
+  asset = ds.add_dataframe_asset(name="refund_asset")
+  bd    = asset.add_batch_definition_whole_dataframe("refund_bd")
+
+关键点：DataFrame 本身不在这里传！
+  这里只是"定义结构"，真正的 df 是在最后 run() 时传进去：
+  vd.run(batch_parameters={"dataframe": df})
+  → 这样同一套配置能反复用在不同日期的数据上
 """)
 
-# TODO 3-1：在 great_expectations.yml 里配置 MySQL 数据源
-# 提示：需要先 pip install pymysql
-# 提示：参考 GE 官方文档 "How to connect to a SQL database"
+# TODO 3-1：写代码创建 context（mode="file"）
+# 然后用 add_pandas 三步套路，定义一个数据源
+# 提示：import great_expectations as gx
 
-# TODO 3-2：跑通连接测试
-# 在终端执行：great_expectations datasource list
-# 确认你的 MySQL 数据源出现在列表里
+# TODO 3-2：造一个测试用的 pandas DataFrame，模拟 daily_refund_report
+# 至少包含这几列：product_category, total_orders, refund_rate, total_refund
+# （后面第 5 关会故意塞脏数据进去测试）
 
 
 # ================================================================
-# 第 4 关：写第一组验证规则
+# 第 4 关：写第一组验证规则（Expectation Suite）
 # ================================================================
 print("\n===== 第 4 关：日常数据质量检查 =====")
 
 print("""
 对 daily_refund_report 这张表，每天跑完管道后至少要验证：
 
-  常规检查：
-    1. total_orders > 0                ← 有数据写入
-    2. total_refund >= 0              ← 退款金额非负
-    3. refund_rate BETWEEN 0 AND 1    ← 退款率合理范围
-    4. product_category 不能为 NULL   ← 品类完整
-    5. report_date 等于今天日期       ← 日期正确
+  常规检查（对应的 Expectation 类名）：
+    1. total_orders 最小值 > 0
+       → ExpectColumnMinToBeBetween(column="total_orders", min_value=1)
+    2. total_refund 非负
+       → ExpectColumnValuesToBeBetween(column="total_refund", min_value=0)
+    3. refund_rate 在 0~1 之间
+       → ExpectColumnValuesToBeBetween(column="refund_rate", min_value=0, max_value=1)
+    4. product_category 不能为 NULL
+       → ExpectColumnValuesToNotBeNull(column="product_category")
+    5. 某列必须存在
+       → ExpectColumnToExist(column="report_date")
 
-  业务检查：
-    6. total_refund 在历史均值的 ±3 个标准差内 ← 异常检测
-    7. distinct_users > 0             ← 有真实用户
-    8. store_id 去重数量 ≥ 预期最小值  ← 数据覆盖足够
+  怎么组装：
+    from great_expectations.expectations import (
+        ExpectColumnMinToBeBetween,
+        ExpectColumnValuesToBeBetween,
+        ExpectColumnValuesToNotBeNull,
+    )
+    suite = context.suites.add(gx.ExpectationSuite(name="refund_quality_suite"))
+    suite.add_expectation(ExpectColumnValuesToBeBetween(
+        column="refund_rate", min_value=0, max_value=1))
+    # ... 继续 add 其他规则
 
-GE 里有三种方式写规则：
-
-  A. 交互式（Jupyter Notebook）：
-      在终端运行 great_expectations suite new
-      → 选 datasource → 选表 → GE 自动分析数据 → 生成规则
-
-  B. 手动写 JSON：
-      在 expectations/ 目录下创建 .json 文件，格式如：
-      {
-        "expectation_type": "expect_column_min_to_be_between",
-        "kwargs": {
-          "column": "refund_rate",
-          "min_value": 0,
-          "max_value": 1
-        }
-      }
-
-  C. Python API：
-      validator.expect_column_min_to_be_between("refund_rate", 0, 1)
+  常用 Expectation 速查（GX 1.x 都是驼峰类名）：
+    ExpectColumnToExist                     列存在
+    ExpectColumnValuesToNotBeNull           非空
+    ExpectColumnValuesToBeBetween           逐行值在范围内
+    ExpectColumnMinToBeBetween              最小值在范围内
+    ExpectColumnMaxToBeBetween              最大值在范围内
+    ExpectColumnMeanToBeBetween             均值在范围内（异常检测）
+    ExpectColumnValuesToBeInSet             值在给定集合内（枚举校验）
+    ExpectColumnValuesToBeUnique            唯一（主键校验）
 """)
 
-# TODO 4-1：使用方式 A（交互式），创建第一套验证规则
-# 运行 great_expectations suite new → 跟着向导走 → 保存为 refund_quality_suite
+# TODO 4-1：创建一个 ExpectationSuite，至少加 5 条规则
+# 用上面列的常规检查 1~5，对应你第 3-2 造的 DataFrame 的列
 
-# TODO 4-2：手动补一条规则 —— 验证 total_refund 不超过历史最大值 50000
-# 把这条规则加到 refund_quality_suite 的 JSON 文件里
+# TODO 4-2：再加一条业务规则 —— 验证 total_refund 最大值不超过 50000
+# 提示：ExpectColumnMaxToBeBetween(column=..., max_value=50000)
 
-# TODO 4-3：用 Python API 再写一套轻量的验证，就写在下面
-# 目标：connect 到 datasource → 创建 batch（指定 report_date）→ 跑 5 条规则
+# TODO 4-3：想一条你自己觉得该加的规则（比如品类只能是某几个值）
+# 用 ExpectColumnValuesToBeInSet 实现
 
 
 # ================================================================
@@ -162,43 +192,88 @@ GE 里有三种方式写规则：
 print("\n===== 第 5 关：执行验证 =====")
 
 print("""
-两种执行方式：
+GX 1.x 执行验证有两种粒度：
 
-  CLI（适合 Airflow 调度）：
-    great_expectations checkpoint run refund_checkpoint
+  A. ValidationDefinition.run() —— 跑一次，拿结果对象
+     vd = context.validation_definitions.add(
+         gx.ValidationDefinition(name="refund_vd", data=bd, suite=suite))
+     result = vd.run(batch_parameters={"dataframe": df})
+     print(result.success)          # True / False
+     print(result.statistics)       # 通过几条、失败几条
 
-  Python（适合嵌入 ETL 脚本）：
-    context = gx.get_context()
-    checkpoint_result = context.run_checkpoint(
-        checkpoint_name="refund_checkpoint"
-    )
+  B. Checkpoint —— 生产用的方式，验证 + 自动触发动作（出 HTML 报告）
+     from great_expectations.checkpoint import UpdateDataDocsAction
+     cp = context.checkpoints.add(gx.Checkpoint(
+         name="refund_checkpoint",
+         validation_definitions=[vd],
+         actions=[UpdateDataDocsAction(name="update_docs")],
+     ))
+     res = cp.run(batch_parameters={"dataframe": df})
 
 跑完之后：
-  - 自动生成 HTML 报告在 gx/uncommitted/data_docs/local_site/
-  - 记录每次验证结果的历史（可以看趋势："上个月通过了 95 次，失败了 3 次"）
-  - 失败的规则有详细的期望值 vs 实际值对比
+  - HTML 报告自动生成在 gx/uncommitted/data_docs/local_site/
+  - 用 context.open_data_docs() 可以直接在浏览器打开
+  - 失败的规则有详细的"期望值 vs 实际值"对比
+  - 每次结果记入历史，能看趋势
 """)
 
-# TODO 5-1：跑一次 refund_checkpoint，截图生成的 HTML 报告
-# 标注报告中每一部分在说什么
+# TODO 5-1：用 ValidationDefinition.run() 跑一次验证
+# 打印 result.success 和 result.statistics，确认全过
 
-# TODO 5-2：故意往 MySQL 里插入一条脏数据（total_refund = -100）
-# 再跑一次 checkpoint，看报告会不会标记失败——验证"验证"本身是有效的
+# TODO 5-2：建一个 Checkpoint，带 UpdateDataDocsAction，跑一次
+# 然后 context.open_data_docs() 打开 HTML 报告，看看长什么样
+
+# TODO 5-3：故意把 DataFrame 里塞一条脏数据（比如 refund_rate = 1.5）
+# 再跑一次 checkpoint，看报告会不会标红失败
+# —— 这一步是验证"你的验证"本身是有效的，很重要
 
 
 # ================================================================
-# 第 6 关：对接 Airflow
+# 第 6 关：从 pandas 换到 Spark（对接你的退款管道）
 # ================================================================
-print("\n===== 第 6 关：GE 集成到 Airflow DAG =====")
+print("\n===== 第 6 关：换成 Spark 引擎 =====")
+
+print("""
+把上面的 pandas 版改成 Spark，几乎只改一个词：
+
+  # pandas 版
+  ds = context.data_sources.add_pandas(name="refund_ds")
+
+  # Spark 版
+  ds = context.data_sources.add_spark(name="refund_ds")
+
+后面 add_dataframe_asset / add_batch_definition_whole_dataframe
+完全一样。run() 时传的也是同一个 key：
+  vd.run(batch_parameters={"dataframe": spark_df})
+  ← 这里的 spark_df 是你 refund_etl.py 里的 PySpark DataFrame
+
+对接思路：
+  在 refund_etl.py 的 validate 步骤里，
+  聚合完拿到最终的 spark_df 之后，不再手写 if，
+  改成走一遍 GX checkpoint。
+""")
+
+# TODO 6-1：把第 3~5 关的代码复制一份，把 add_pandas 改成 add_spark
+# 用一个小的 spark DataFrame 测试跑通（可以从 refund_etl 里借一段数据）
+
+# TODO 6-2（选做）：把 GX 验证封装成一个函数 run_ge_check(spark_df)
+# 返回 bool（是否全过），失败时抛 PipelineError
+# 这样能塞进你现有的 refund_etl.py validate 步骤
+
+
+# ================================================================
+# 第 7 关：对接 Airflow
+# ================================================================
+print("\n===== 第 7 关：GX 集成到 Airflow DAG =====")
 
 print("""
 管道流程变成：
 
   新流程：
   ① PySpark ETL 完成
-  ② GE Checkpoint 自动跑
+  ② GX Checkpoint 自动跑
   ③ 如果验证全过 → DAG 标记为 success
-  ④ 如果验证不过 → 发告警 + 记录哪些规则没过
+  ④ 如果验证不过 → raise 异常 → DAG 失败 → 触发告警
   ⑤ HTML 报告自动存档
 
   旧流程：
@@ -206,34 +281,35 @@ print("""
   ② validate_results() ← 只有 4 个 if
   ③ 没了
 
-用 PythonOperator 在 refund_pipeline.py 里加一个任务：
+用 PythonOperator 在 DAG 里加一个任务，直接调 GX 的 Python API：
 
-  def run_ge_check(**context):
-      # 在子进程里跑 GE checkpoint
-      cmd = [
-          sys.executable, "-m", "great_expectations",
-          "checkpoint", "run", "refund_checkpoint"
-      ]
-      result = subprocess.run(cmd, capture_output=True, text=True)
-      if result.returncode != 0:
-          raise ValueError(f"数据质量验证失败: {result.stderr}")
-      return result.stdout
+  def run_quality_check(**context):
+      import great_expectations as gx
+      ctx = gx.get_context(mode="file")
+      cp = ctx.checkpoints.get("refund_checkpoint")
+      # 注意：Airflow 里 Spark df 不好跨任务传，
+      # 常见做法是这一步重新读 MySQL 结果表成 df 再验证，
+      # 或者用 add_sql 直接连 MySQL 表验证（不用传 df）
+      result = cp.run(...)
+      if not result.success:
+          raise ValueError("数据质量验证未通过")
 
-  ge_check = PythonOperator(
+  quality_check = PythonOperator(
       task_id="quality_check",
-      python_callable=run_ge_check,
+      python_callable=run_quality_check,
   )
+  run_etl >> quality_check
 
-  run_etl >> ge_check
-
-这样每次管道跑完，GE 自动验证，不通过就告警。
+  💡 Airflow 场景下，用 add_sql 直连 MySQL 表验证往往比传 df 更省事，
+     因为不用在任务之间传递 Spark DataFrame。
 """)
 
-# TODO 6：在 refund_pipeline.py 里加 GE 验证步骤
-# 1. 创建 run_ge_check 函数
-# 2. 创建 PythonOperator
-# 3. 设 run_etl >> ge_check
-# 4. 手动触发 DAG，确认 GE 步骤跑通
+# TODO 7-1：想清楚一个问题 —— 为什么 Airflow 里用 add_sql 连 MySQL
+# 比传 Spark DataFrame 更方便？（提示：任务之间数据怎么传递）
+
+# TODO 7-2（选做）：在你的退款 DAG 里加一个 quality_check 任务
+# 用 add_sql 连 MySQL 的 daily_refund_report 表来验证
+# 设 run_etl >> quality_check，手动触发确认跑通
 
 
 # ================================================================
@@ -241,9 +317,12 @@ print("""
 # ================================================================
 print("\n===== 学完自检 =====")
 questions = [
-    "声明式验证和命令式验证的区别？你更喜欢哪个？为什么？",
-    "GE 的 Suite / Checkpoint / Expectation 分别是什么？",
-    "GE 和之前手写 validate_results() 相比，哪些场景下 GE 更合适？",
+    "GX 1.x 和 0.18 老版最大的区别是什么？（提示：CLI）",
+    "GX 的四层：Context / DataSource / Suite / Checkpoint 分别是什么？",
+    "声明式验证和命令式验证的区别？GX 慢一点为什么还值得用？",
+    "batch_parameters={'dataframe': df} 里的 df 为什么在 run 时才传，不在配置里写死？",
+    "从 pandas 换到 Spark 引擎，代码要改哪里？",
+    "Airflow 里为什么 add_sql 连表比传 Spark df 更省事？",
     "面试官问'你怎么保证数据质量'，用 3 句话回答",
 ]
 for i, q in enumerate(questions, 1):
