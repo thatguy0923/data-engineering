@@ -1,0 +1,17 @@
+# 核心数据处理
+pandas==3.0.3
+numpy==2.4.6
+pyspark==4.1.2
+
+# 数据库
+SQLAlchemy==2.0.50
+PyMySQL==1.2.0
+
+# 工作流调度
+apache-airflow==3.2.2
+
+# 数据质量
+great_expectations==1.18.1
+
+# 数据版本控制
+dvc==3.67.1
