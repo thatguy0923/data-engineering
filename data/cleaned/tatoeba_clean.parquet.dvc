@@ -1,0 +1,6 @@
+outs:
+- md5: 58c0404697b14b49737cd631a9e9ee4a.dir
+  size: 10360132
+  nfiles: 402
+  hash: md5
+  path: tatoeba_clean.parquet
