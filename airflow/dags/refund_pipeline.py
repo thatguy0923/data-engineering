@@ -24,7 +24,7 @@ def run_step(step, **context):
         date_str = date.today().isoformat()
     cmd = [
         "/Users/thatguy/de-venv/bin/python",
-        "/Users/thatguy/de-venv/refund_etl.py",
+        "/Users/thatguy/de-venv/projects/ecommerce-refund-etl/refund_etl.py",
         "--step", step,
         "--date", date_str,
     ]
