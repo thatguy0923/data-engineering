@@ -1,0 +1,5 @@
+outs:
+- md5: b745564f1dcda370e489e24f5d38a4e0
+  size: 192388
+  hash: md5
+  path: kor_sentences.tsv.bz2

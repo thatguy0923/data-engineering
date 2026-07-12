@@ -1,0 +1,5 @@
+outs:
+- md5: 48beeee6c054d487735eee18432b4ad3
+  size: 9082332
+  hash: md5
+  path: tatoeba_raw.parquet

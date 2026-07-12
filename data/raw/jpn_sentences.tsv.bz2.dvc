@@ -1,0 +1,5 @@
+outs:
+- md5: 58677b877e0baab548e110c37d569005
+  size: 3415765
+  hash: md5
+  path: jpn_sentences.tsv.bz2

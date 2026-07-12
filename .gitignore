@@ -43,3 +43,6 @@ mysql-connector-j.jar
 *.swp
 *.swo
 .DS_Store
+
+# milvus-lite / sqlite 本地库
+*.db/
