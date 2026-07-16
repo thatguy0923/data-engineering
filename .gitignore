@@ -16,7 +16,13 @@ build/
 
 # 数据文件（保留生成脚本）
 *.csv
+*.parquet
+*.npy
+*.bz2
 data/*.json
+
+# 运行产物
+output/
 
 # 日志
 *.log

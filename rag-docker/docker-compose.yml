@@ -1,0 +1,14 @@
+services:
+  pipeline:
+    build: .
+    environment:
+      PYSPARK_PYTHON: python
+      PYSPARK_DRIVER_PYTHON: python
+      HF_ENDPOINT: https://hf-mirror.com
+    volumes:
+      - ./data:/rag-app/data         # 数据持久化（Tatoeba 下载 + 向量）
+      - ./output:/rag-app/output     # 搜索结果输出
+      - hf_cache:/root/.cache/huggingface   # 模型缓存（500MB，避免每次重下）
+
+volumes:
+  hf_cache:

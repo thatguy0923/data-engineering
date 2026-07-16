@@ -1,0 +1,8 @@
+pandas
+pyspark
+great_expectations
+sentence-transformers
+faiss-cpu
+numpy
+pyarrow
+torch
