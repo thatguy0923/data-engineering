@@ -8,3 +8,4 @@ pyarrow
 torch
 fastapi
 uvicorn
+pytest

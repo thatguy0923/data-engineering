@@ -23,6 +23,12 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: 装 Java（PySpark 需要）
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: 装依赖
         run: pip install -r requirements.txt
 
