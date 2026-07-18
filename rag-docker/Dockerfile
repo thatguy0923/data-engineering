@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua
 
 # 6. 再拷代码
 COPY pipeline/ pipeline/
+COPY api_server.py .
 
 # 7. 创建数据和输出目录
 RUN mkdir -p /rag-app/data /rag-app/output
